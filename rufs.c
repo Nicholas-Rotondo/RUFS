@@ -8,6 +8,9 @@
 #define FUSE_USE_VERSION 26
 #define SUPERBLOCK 0
 
+#define INODE_PER_BLOCK (((sizeof(struct inode)) * (MAX_INUM)) / (BLOCK_SIZE));
+#define DIRENT_PER_BLOCK ((sizeof(struct dirent)) / (BLOCK_SIZE))
+
 #include <fuse.h>
 #include <stdlib.h>
 #include <stdio.h>
@@ -27,7 +30,7 @@ char diskfile_path[PATH_MAX];
 
 // Declare your in-memory data structures here
 
-unsigned char block_buf[BLOCK_SIZE], ibitmap_buf[BLOCK_SIZE], dbitmap_buf[BLOCK_SIZE], superblock_buf[BLOCK_SIZE];
+unsigned char block_buf[BLOCK_SIZE], i_bitmap_buf[BLOCK_SIZE], d_bitmap_buf[BLOCK_SIZE], superblock_buf[BLOCK_SIZE];
 
 struct superblock *superblock_ptr = superblock_buf;
 
@@ -37,16 +40,16 @@ struct superblock *superblock_ptr = superblock_buf;
 int get_avail_ino() {
 
 	// Step 1: Read inode bitmap from disk
-	bio_read(superblock_ptr->i_bitmap_blk, ibitmap_buf);
+	bio_read(superblock_ptr->i_bitmap_blk, i_bitmap_buf);
 	
 	// Step 2: Traverse inode bitmap to find an available slot
 	int inode = 0, found_flag = 0;
 	for ( int i = 0; i < (MAX_INUM / 8); i++ ) {
-		if ( ibitmap_buf[i] = 255 ) inode += 8;
+		if ( i_bitmap_buf[i] == 255 ) inode += 8;
 		else {
 			unsigned char map = 1;
 			for ( int j = 0; j < 8; j++ ) {
-				if ( ibitmap_buf[i] & map == 0 ) {
+				if ( i_bitmap_buf[i] & map == 0 ) {
 					found_flag = 1;
 					break;
 				} else {
@@ -62,9 +65,9 @@ int get_avail_ino() {
 
 	// Step 3: Update inode bitmap and write to disk 
 
-	set_bitmap(ibitmap_buf, inode);
+	set_bitmap(i_bitmap_buf, inode);
 
-	bio_write(superblock_ptr->i_bitmap_blk, ibitmap_buf);
+	bio_write(superblock_ptr->i_bitmap_blk, i_bitmap_buf);
 
 	return inode;
 }
@@ -75,16 +78,16 @@ int get_avail_ino() {
 int get_avail_blkno() {
 
 	// Step 1: Read inode bitmap from disk
-	bio_read(superblock_ptr->d_bitmap_blk, dbitmap_buf);
+	bio_read(superblock_ptr->d_bitmap_blk, d_bitmap_buf);
 	
 	// Step 2: Traverse inode bitmap to find an available slot
 	int block = 0, found_flag = 0;
 	for ( int i = 0; i < (MAX_INUM / 8); i++ ) {
-		if ( dbitmap_buf[i] = 255 ) block += 8;
+		if ( d_bitmap_buf[i] == 255 ) block += 8;
 		else {
 			unsigned char map = 1;
 			for ( int j = 0; j < 8; j++ ) {
-				if ( dbitmap_buf[i] & map == 0 ) {
+				if ( d_bitmap_buf[i] & map == 0 ) {
 					found_flag = 1;
 					break;
 				} else {
@@ -100,9 +103,9 @@ int get_avail_blkno() {
 
 	// Step 3: Update inode bitmap and write to disk 
 
-	set_bitmap(dbitmap_buf, block);
+	set_bitmap(d_bitmap_buf, block);
 
-	bio_write(superblock_ptr->d_bitmap_blk, dbitmap_buf);
+	bio_write(superblock_ptr->d_bitmap_blk, d_bitmap_buf);
 
 	return block;
 }
@@ -112,11 +115,18 @@ int get_avail_blkno() {
  */
 int readi(uint16_t ino, struct inode *inode) {
 
-  // Step 1: Get the inode's on-disk block number
+	// Step 1: Get the inode's on-disk block number
+	int block_num = ino / INODE_PER_BLOCK; 
 
-  // Step 2: Get offset of the inode in the inode on-disk block
+	// Step 2: Get offset of the inode in the inode on-disk block
+	int offset = ino % INODE_PER_BLOCK;
 
-  // Step 3: Read the block from disk and then copy into inode structure
+	// Step 3: Read the block from disk and then copy into inode structure
+	bio_read(block_num, block_buf);
+
+	struct inode *inode_ptr = block_buf;
+	inode_ptr += offset;
+	*(inode) = *(inode_ptr);
 
 	return 0;
 }
@@ -124,10 +134,19 @@ int readi(uint16_t ino, struct inode *inode) {
 int writei(uint16_t ino, struct inode *inode) {
 
 	// Step 1: Get the block number where this inode resides on disk
+	int block_num = ino / INODE_PER_BLOCK; 
 	
 	// Step 2: Get the offset in the block where this inode resides on disk
+	int offset = ino % INODE_PER_BLOCK;
 
 	// Step 3: Write inode to disk 
+	bio_read(block_num, block_buf);
+
+	struct inode *inode_ptr = block_buf;
+	inode_ptr += offset;
+	*(inode_ptr) = *(inode);
+
+	bio_write(block_num, block_buf);
 
 	return 0;
 }
@@ -138,19 +157,46 @@ int writei(uint16_t ino, struct inode *inode) {
  */
 int dir_find(uint16_t ino, const char *fname, size_t name_len, struct dirent *dirent) {
 
-  // Step 1: Call readi() to get the inode using ino (inode number of current directory)
+	// Step 1: Call readi() to get the inode using ino (inode number of current directory)
+	struct inode dir_inode;
+	readi(ino, &dir_inode);
 
   // Step 2: Get data block of current directory from inode
+	for ( int i = 0; i < dir_inode.size; i++ ) {
+		bio_read(dir_inode.direct_ptr[i], block_buf);
+		struct dirent *dirent_ptr = block_buf;
+		for ( int j = 0; j < DIRENT_PER_BLOCK; j++ ) {
+			if ( ! (dirent_ptr->valid && (dirent_ptr->len == name_len))) continue;
+			else if ( memcmp(fname, dirent_ptr->name, name_len) == 0 ) {
+				*(dirent) = *(dirent_ptr);
+				return 0;
+			}
+		}
+
+	}
 
   // Step 3: Read directory's data block and check each directory entry.
   //If the name matches, then copy directory entry to dirent structure
 
-	return 0;
+	return -1;
 }
 
 int dir_add(struct inode dir_inode, uint16_t f_ino, const char *fname, size_t name_len) {
 
 	// Step 1: Read dir_inode's data block and check each directory entry of dir_inode
+	struct dirent *last_invalid_dirent;
+	for ( int i = 0; i < dir_inode.size; i++ ) {
+		bio_read(dir_inode.direct_ptr[i], block_buf);
+		struct dirent *dirent_ptr = block_buf;
+		for ( int j = 0; j < DIRENT_PER_BLOCK; j++ ) {
+			if ( ! (dirent_ptr->valid && (dirent_ptr->len == name_len))) continue;
+			else if ( memcmp(fname, dirent_ptr->name, name_len) == 0 ) {
+				*(dirent) = *(dirent_ptr);
+				return 0;
+			}
+		}
+
+	}
 	
 	// Step 2: Check if fname (directory name) is already used in other entries
 
@@ -190,31 +236,33 @@ int get_node_by_path(const char *path, uint16_t ino, struct inode *inode) {
 /* 
  * Make file system
  */
+
 int rufs_mkfs() {
 
 	// Call dev_init() to initialize (Create) Diskfile
 	dev_init(diskfile_path);
 
 	// write superblock information
-	superblock.magic_num = MAGIC_NUM;
-	superblock.max_inum = MAX_INUM;
-	superblock.max_dnum = MAX_DNUM;
+	superblock_ptr->magic_num = MAGIC_NUM;
+	superblock_ptr->max_inum = MAX_INUM;
+	superblock_ptr->max_dnum = MAX_DNUM;
 
 	int blocks_for_inode_bitmap = ((MAX_INUM / 8) + BLOCK_SIZE - 1) / BLOCK_SIZE;
 	int blocks_for_dblock_bitmap = ((MAX_DNUM / 8) + BLOCK_SIZE - 1) / BLOCK_SIZE;
 	int blocks_for_inodes = (sizeof(struct inode) * MAX_INUM) / BLOCK_SIZE;
 
-	superblock.i_bitmap_blk = 1;
-	superblock.d_bitmap_blk = superblock.i_bitmap_blk + blocks_for_inode_bitmap;
-	superblock.i_start_blk = superblock.d_bitmap_blk + blocks_for_dblock_bitmap;
-	superblock.d_start_blk = superblock.i_start_blk + blocks_for_inodes;
+	superblock_ptr->i_bitmap_blk = 1;
+	superblock_ptr->d_bitmap_blk = superblock_ptr->i_bitmap_blk + blocks_for_inode_bitmap;
+	superblock_ptr->i_start_blk = superblock_ptr->d_bitmap_blk + blocks_for_dblock_bitmap;
+	superblock_ptr->d_start_blk = superblock_ptr->i_start_blk + blocks_for_inodes;
 
-	bio_write(SUPERBLOCK, &superblock);
+	bio_write(SUPERBLOCK, superblock_buf);
 
 	// initialize inode bitmap
 	
 
 	// initialize data block bitmap
+
 
 	// update bitmap information for root directory
 
@@ -294,7 +342,6 @@ static int rufs_mkdir(const char *path, mode_t mode) {
 	// Step 5: Update inode for target directory
 
 	// Step 6: Call writei() to write inode to disk
-	
 
 	return 0;
 }
