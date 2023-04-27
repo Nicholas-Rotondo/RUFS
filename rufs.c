@@ -7,6 +7,10 @@
 
 #define FUSE_USE_VERSION 26
 #define SUPERBLOCK 0
+#define ROOT_DIRECTORY 0
+
+#define FILE 0
+#define DIRECTORY 1
 
 #define INODE_PER_BLOCK (((sizeof(struct inode)) * (MAX_INUM)) / (BLOCK_SIZE));
 #define DIRENT_PER_BLOCK ((sizeof(struct dirent)) / (BLOCK_SIZE))
@@ -184,23 +188,62 @@ int dir_find(uint16_t ino, const char *fname, size_t name_len, struct dirent *di
 int dir_add(struct inode dir_inode, uint16_t f_ino, const char *fname, size_t name_len) {
 
 	// Step 1: Read dir_inode's data block and check each directory entry of dir_inode
-	struct dirent *last_invalid_dirent;
+	char invalid_flag = 0;
+
 	for ( int i = 0; i < dir_inode.size; i++ ) {
 		bio_read(dir_inode.direct_ptr[i], block_buf);
 		struct dirent *dirent_ptr = block_buf;
 		for ( int j = 0; j < DIRENT_PER_BLOCK; j++ ) {
-			if ( ! (dirent_ptr->valid && (dirent_ptr->len == name_len))) continue;
-			else if ( memcmp(fname, dirent_ptr->name, name_len) == 0 ) {
-				*(dirent) = *(dirent_ptr);
-				return 0;
+			if ( ! dirent_ptr->valid ) {
+				invalid_flag = 1;
+				continue;
+			}
+
+			if ( dirent_ptr->len != name_len ) continue;
+
+			if ( memcmp(fname, dirent_ptr->name, name_len) == 0 ) return -1;
+			else continue;
+		}
+	}
+	// Step 3: Add directory entry in dir_inode's data block and write to disk
+
+	if ( invalid_flag ) {
+
+		for ( int i = 0; i < dir_inode.size; i++ ) {
+			bio_read(dir_inode.direct_ptr[i], block_buf);
+			struct dirent *dirent_ptr = block_buf;
+			for ( int j = 0; j < DIRENT_PER_BLOCK; j++ ) {
+				if ( dirent_ptr[j].valid ) continue;
+				else {
+					dirent_ptr[j].ino = f_ino;
+					memcpy(dirent_ptr[j].name, fname, name_len);
+					dirent_ptr[j].valid = 1;
+					bio_write(dir_inode.direct_ptr[i], block_buf);
+					return 0;
+				}
 			}
 		}
 
-	}
-	
-	// Step 2: Check if fname (directory name) is already used in other entries
+	} else {
 
-	// Step 3: Add directory entry in dir_inode's data block and write to disk
+		int new_block = get_avail_blkno();
+		bio_read(new_block, block_buf);
+		struct dirent *dirent_ptr = block_buf;
+
+		for ( int i = 0; i < DIRENT_PER_BLOCK; i++ ) dirent_ptr[i].valid = 0;
+
+		dirent_ptr->ino = f_ino;
+		memcpy(dirent_ptr->name, fname, name_len);
+		dirent_ptr->valid = 1;
+
+		bio_write(new_block, block_buf);
+
+		dir_inode.direct_ptr[dir_inode.size++] = new_block;
+		writei(dir_inode.ino, &dir_inode);
+
+		return 0;		
+
+	}
 
 	// Allocate a new data block for this directory if it does not exist
 
@@ -214,12 +257,25 @@ int dir_add(struct inode dir_inode, uint16_t f_ino, const char *fname, size_t na
 int dir_remove(struct inode dir_inode, const char *fname, size_t name_len) {
 
 	// Step 1: Read dir_inode's data block and checks each directory entry of dir_inode
+	for ( int i = 0; i < dir_inode.size; i++ ) {
+		bio_read(dir_inode.direct_ptr[i], block_buf);
+		struct dirent *dirent_ptr = block_buf;
+		for ( int j = 0; j < DIRENT_PER_BLOCK; j++ ) {
+			if ( ! ( dirent_ptr->valid && dirent_ptr->len == name_len ) ) continue;
+			if ( memcmp(fname, dirent_ptr->name, name_len) == 0 ) {
+				dirent_ptr->valid = 0;
+				bio_write(dir_inode.direct_ptr[i], block_buf);
+				return 0;
+			}
+			else continue;
+		}
+	}
 	
 	// Step 2: Check if fname exist
 
 	// Step 3: If exist, then remove it from dir_inode's data block and write to disk
 
-	return 0;
+	return -1;
 }
 
 /* 
@@ -230,7 +286,59 @@ int get_node_by_path(const char *path, uint16_t ino, struct inode *inode) {
 	// Step 1: Resolve the path name, walk through path, and finally, find its inode.
 	// Note: You could either implement it in a iterative way or recursive way
 
-	return 0;
+	struct inode dir_inode;
+	readi(ino, &dir_inode);
+
+	char *s1, *s2, *subdir_name;
+	int s1_length, s2_length, subdir_length;
+
+	s1 = strchr(path, '/');
+	if ( s1 ==  NULL ) return -1;
+	s1++;
+	s1_length = strlen(s1);
+
+	s2 = strchr(s1, '/');
+	if ( s2 ==  NULL ) {
+		
+		for ( int i = 0; i < dir_inode.size; i++ ) {
+			bio_read(dir_inode.direct_ptr[i], block_buf);
+			struct dirent *dirent_ptr = block_buf;
+			for ( int j = 0; j < DIRENT_PER_BLOCK; j++ ) {
+				if ( ! ( dirent_ptr->valid && dirent_ptr->len == subdir_length ) ) continue;
+				else if ( memcmp(s1, dirent_ptr->name, subdir_length) == 0 ) {
+					readi(dirent_ptr->ino, inode);
+					return 0;
+				}
+			}
+
+		}
+
+	} else {
+		
+		s2_length = strlen(s2);
+
+		subdir_length = s1_length - s2_length;
+		if ( subdir_length == 0 ) return -1;
+
+		char subdir_name[subdir_length + 1];
+		memcpy(subdir_name, s1, subdir_length);
+		subdir_name[subdir_length] = '\0';	
+
+		for ( int i = 0; i < dir_inode.size; i++ ) {
+			bio_read(dir_inode.direct_ptr[i], block_buf);
+			struct dirent *dirent_ptr = block_buf;
+			for ( int j = 0; j < DIRENT_PER_BLOCK; j++ ) {
+				if ( ! ( dirent_ptr->valid && dirent_ptr->len == subdir_length ) ) continue;
+				else if ( memcmp(subdir_name, dirent_ptr->name, subdir_length) == 0 ) {
+					return get_node_by_path(s1, dirent_ptr->ino, inode);
+				}
+			}
+
+		}
+
+	}
+
+	return -1;
 }
 
 /* 
