@@ -571,9 +571,56 @@ static int rufs_read(const char *path, char *buffer, size_t size, off_t offset, 
 }
 
 static int rufs_write(const char *path, const char *buffer, size_t size, off_t offset, struct fuse_file_info *fi) {
+	
 	// Step 1: You could call get_node_by_path() to get inode from path
+	struct inode inode;
+	if ( get_node_by_path(path, ROOT_DIRECTORY, &inode) == -1 ) return -1;
+	if ( inode.type != FILE ) return -1;
 
 	// Step 2: Based on size and offset, read its data blocks from disk
+	int blocks_for_write = ( size + offset + BLOCK_SIZE - 1) / BLOCK_SIZE;
+	int blocks_to_allocate = blocks_for_write - inode.size;
+
+	int curr_block = offset / BLOCK_SIZE;
+
+	int byte_counter = size;
+	
+	while ( byte_counter > 0 ) {
+
+		if ( curr_block >= 16 ) return -1;
+
+		int space_in_block = BLOCK_SIZE - (offset % BLOCK_SIZE);
+		int bytes_to_write;
+		
+		if (byte_counter > space_in_block ) bytes_to_write = space_in_block;
+		else bytes_to_write = byte_counter;
+
+		void *write_ptr = block_buf;
+		write_ptr += (offset % BLOCK_SIZE);
+
+		if ( curr_block == inode.size ) {
+
+			int allocated_block = get_avail_blkno();
+			bio_read(allocated_block, block_buf);
+			memcpy(write_ptr, buffer, bytes_to_write);
+			bio_write(allocated_block, block_buf);
+			inode.direct_ptr[size++] = allocated_block;
+
+		} else {
+
+			bio_read(inode.direct_ptr[curr_block], block_buf);
+			memcpy(write_ptr, buffer, bytes_to_write);
+			bio_write(inode.direct_ptr[curr_block], block_buf);
+
+		}
+
+		byte_counter -= bytes_to_write;
+		curr_block++;
+		offset = 0;
+		
+	}
+
+	if ( blocks_to_allocate > 0 ) writei(inode.ino, &inode);
 
 	// Step 3: Write the correct amount of data from offset to disk
 
