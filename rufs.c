@@ -381,21 +381,9 @@ static void *rufs_init(struct fuse_conn_info *conn) {
 
 	// Step 1b: If disk file is found, just initialize in-memory data structures
 	// and read superblock from disk
-<<<<<<< Updated upstream
-
-	
-	// Step 1b: If disk file is found, just initialize in-memory data structures
-	// and read superblock from disk
-	
-
-	//something else needs to go here, keep filling in for now/
-
-	bio_read(SUPERBLOCK, superblock_buf);
-=======
 	bio_read(SUPERBLOCK, superblock_buf);
 	bio_read(superblock->i_bitmap_blk, i_bitmap_buf);
 	bio_read(superblock->d_bitmap_blk, d_bitmap_buf);
->>>>>>> Stashed changes
 
 	return NULL;
 }
@@ -410,14 +398,6 @@ static void rufs_destroy(void *userdata) {
 }
 
 static int rufs_getattr(const char *path, struct stat *stbuf) {
-<<<<<<< Updated upstream
-
-	struct inode get_inode;
-	// Step 1: call get_node_by_path() to get inode from path
-	if(get_node_by_path(path, stbuf->st_ino, &get_inode) != -1) {
-
-	}
-=======
 	struct inode *temp;
 	// Step 1: call get_node_by_path() to get inode from path
 	if(get_node_by_path(path, ROOT_DIRECTORY, &temp) == 0) {
@@ -429,7 +409,6 @@ static int rufs_getattr(const char *path, struct stat *stbuf) {
 		time(&stbuf->st_mtime);
 		temp->vstat = stbuf;
 	} else return -1;
->>>>>>> Stashed changes
 	// Step 2: fill attribute of file into stbuf from inode
 	return 0;
 }
@@ -450,6 +429,8 @@ static int rufs_opendir(const char *path, struct fuse_file_info *fi) {
 static int rufs_readdir(const char *path, void *buffer, fuse_fill_dir_t filler, off_t offset, struct fuse_file_info *fi) {
 
 	// Step 1: Call get_node_by_path() to get inode from path
+	struct inode inode;
+	if ( get_node_by_path(path, ROOT_DIRECTORY, &inode) == -1 ) return -1;
 
 	// Step 2: Read directory entries from its data blocks, and copy them to filler
 	for ( int i = 0; i < inode.size; i++ ) {
@@ -477,9 +458,10 @@ static int rufs_mkdir(const char *path, mode_t mode) {
 
 	// Step 3: Call get_avail_ino() to get an available inode number
 	ino_t inode = get_avail_ino();
+	if ( inode == -1 ) return -1;
 
 	// Step 4: Call dir_add() to add directory entry of target directory to parent directory
-	dir_add(parent_inode, inode, directory_name, strlen(directory_name));
+	if ( dir_add(parent_inode, inode, directory_name, strlen(directory_name)) == -1) return -1;
 
 	// Step 5: Update inode for target directory
 	struct inode base_inode;
@@ -493,13 +475,13 @@ static int rufs_mkdir(const char *path, mode_t mode) {
 
 	dirent_ptr->ino = inode;
 	dirent_ptr->valid = 1;
-	memcpy(dirent_ptr->name, cur_dir, 2);
+	memcpy(dirent_ptr->name, cur_dir, 1);
 	dirent_ptr->len = 1;
 	dirent_ptr++;
 
 	dirent_ptr->ino = parent_inode.ino;
 	dirent_ptr->valid = 1;
-	memcpy(dirent_ptr->name, par_dir, 3);
+	memcpy(dirent_ptr->name, par_dir, 2);
 	dirent_ptr->len = 2;
 
 	bio_write(init_block, block_buf);
@@ -519,21 +501,27 @@ static int rufs_mkdir(const char *path, mode_t mode) {
 static int rufs_rmdir(const char *path) {
 
 	// Step 1: Use dirname() and basename() to separate parent directory path and target directory name
+	char directory_path[] = dirname(path);
+	char directory_name[] = basename(path);
 
 	// Step 2: Call get_node_by_path() to get inode of target directory
 	struct inode target_inode;
 	get_node_by_path(path, ROOT_DIRECTORY, &target_inode);
 
 	// Step 3: Clear data block bitmap of target directory
-	for ( int i = 0; i < parent_inode.size; i++ ) {
-
-	}
+	for ( int i = 0; i < target_inode.size; i++ ) unset_bitmap(d_bitmap_buf, target_inode.direct_ptr[i]);
+	bio_write(superblock_ptr->d_bitmap_blk, d_bitmap_buf);
 
 	// Step 4: Clear inode bitmap and its data block
+	unset_bitmap(i_bitmap_buf, target_inode.ino);
+	bio_write(superblock_ptr->i_bitmap_blk, i_bitmap_buf);
 
 	// Step 5: Call get_node_by_path() to get inode of parent directory
+	struct inode parent_inode;
+	get_node_by_path(directory_path, ROOT_DIRECTORY, &parent_inode);
 
 	// Step 6: Call dir_remove() to remove directory entry of target directory in its parent directory
+	dir_remove(parent_inode, directory_name, srlen(directory_name));
 
 	return 0;
 }
