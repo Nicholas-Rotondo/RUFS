@@ -298,22 +298,17 @@ int get_node_by_path(const char *path, uint16_t ino, struct inode *inode) {
 	if ( s1 ==  NULL ) return -1;
 	s1++;
 	s1_length = strlen(s1);
+	if ( s1_length == 0 ) {
+		*(inode) = dir_inode;
+		return 0;
+	}
 
 	s2 = strchr(s1, '/');
-	if ( s2 ==  NULL ) {
+	if ( s2 == NULL ) {
 		
-		for ( int i = 0; i < dir_inode.size; i++ ) {
-			bio_read(dir_inode.direct_ptr[i], block_buf);
-			struct dirent *dirent_ptr = block_buf;
-			for ( int j = 0; j < DIRENT_PER_BLOCK; j++ ) {
-				if ( ! ( dirent_ptr->valid && dirent_ptr->len == subdir_length ) ) continue;
-				else if ( memcmp(s1, dirent_ptr->name, subdir_length) == 0 ) {
-					readi(dirent_ptr->ino, inode);
-					return 0;
-				}
-			}
-
-		}
+		struct dirent dirent;
+		if ( dir_find(ino, s1, s1_length, &dirent) == -1 ) return -1;
+		readi(dirent.ino, inode);
 
 	} else {
 		
@@ -322,25 +317,16 @@ int get_node_by_path(const char *path, uint16_t ino, struct inode *inode) {
 		subdir_length = s1_length - s2_length;
 		if ( subdir_length == 0 ) return -1;
 
-		char subdir_name[subdir_length + 1];
+		char subdir_name[subdir_length];
 		memcpy(subdir_name, s1, subdir_length);
-		subdir_name[subdir_length] = '\0';	
 
-		for ( int i = 0; i < dir_inode.size; i++ ) {
-			bio_read(dir_inode.direct_ptr[i], block_buf);
-			struct dirent *dirent_ptr = block_buf;
-			for ( int j = 0; j < DIRENT_PER_BLOCK; j++ ) {
-				if ( ! ( dirent_ptr->valid && dirent_ptr->len == subdir_length ) ) continue;
-				else if ( memcmp(subdir_name, dirent_ptr->name, subdir_length) == 0 ) {
-					return get_node_by_path(s1, dirent_ptr->ino, inode);
-				}
-			}
-
-		}
+		struct dirent dirent;
+		if ( dir_find(ino, subdir_name, subdir_length, &dirent) == -1 ) return -1;
+		return get_node_by_path(s1, dirent.ino, inode);
 
 	}
 
-	return -1;
+	return 0;
 }
 
 /* 
