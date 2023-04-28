@@ -224,8 +224,8 @@ int dir_add(struct inode dir_inode, uint16_t f_ino, const char *fname, size_t na
 					return 0;
 				}
 			}
-		}
-
+	}
+	
 	} else {
 
 		int new_block = get_avail_blkno();
@@ -309,8 +309,8 @@ int get_node_by_path(const char *path, uint16_t ino, struct inode *inode) {
 				if ( ! ( dirent_ptr->valid && dirent_ptr->len == subdir_length ) ) continue;
 				else if ( memcmp(s1, dirent_ptr->name, subdir_length) == 0 ) {
 					readi(dirent_ptr->ino, inode);
-					return 0;
-				}
+	return 0;
+}
 			}
 
 		}
@@ -368,15 +368,18 @@ int rufs_mkfs() {
 
 	bio_write(SUPERBLOCK, superblock_buf);
 
+
 	// initialize inode bitmap
+	memset(i_bitmap_buf, 0, BLOCK_SIZE)
 	
-
 	// initialize data block bitmap
-
+	memset(d_bitmap_buf, 0, BLOCK_SIZE);
 
 	// update bitmap information for root directory
+	bio_write(ROOT_DIRECTORY, d_bitmap_buf);
 
 	// update inode for root directory
+	bio_write(ROOT_DIRECTORY, i_bitmap_buf);
 
 	return 0;
 }
@@ -391,10 +394,17 @@ static void *rufs_init(struct fuse_conn_info *conn) {
 
 	if ( dev_open(diskfile_path) == -1 ) rufs_mkfs();
 
-  // Step 1b: If disk file is found, just initialize in-memory data structures
-  // and read superblock from disk
-
+	// Step 1b: If disk file is found, just initialize in-memory data structures
+	// and read superblock from disk
 	
+
+<<<<<<< HEAD
+	
+=======
+	//something else needs to go here, keep filling in for now/
+
+	bio_read(SUPERBLOCK, superblock_buf);
+>>>>>>> 8118ddc150a4164704b2ba8dac1a04e57094e5bb
 
 	return NULL;
 }
@@ -408,14 +418,16 @@ static void rufs_destroy(void *userdata) {
 }
 
 static int rufs_getattr(const char *path, struct stat *stbuf) {
-
+	struct inode get_inode;
 	// Step 1: call get_node_by_path() to get inode from path
+	if(get_node_by_path(path, stbuf->st_ino, get_inode) == 1) {
 
+	}
 	// Step 2: fill attribute of file into stbuf from inode
 
-		stbuf->st_mode   = S_IFDIR | 0755;
-		stbuf->st_nlink  = 2;
-		time(&stbuf->st_mtime);
+	stbuf->st_mode   = S_IFDIR | 0755;
+	stbuf->st_nlink  = 2;
+	time(&stbuf->st_mtime);
 
 	return 0;
 }
