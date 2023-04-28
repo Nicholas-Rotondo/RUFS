@@ -38,6 +38,8 @@ unsigned char block_buf[BLOCK_SIZE], i_bitmap_buf[BLOCK_SIZE], d_bitmap_buf[BLOC
 
 struct superblock *superblock_ptr = superblock_buf;
 
+char cur_dir[] = ".", par_dir[] = "..";
+
 /* 
  * Get available inode number from bitmap
  */
@@ -392,7 +394,7 @@ static void *rufs_init(struct fuse_conn_info *conn) {
   // Step 1b: If disk file is found, just initialize in-memory data structures
   // and read superblock from disk
 
-
+	
 
 	return NULL;
 }
@@ -420,7 +422,11 @@ static int rufs_getattr(const char *path, struct stat *stbuf) {
 
 static int rufs_opendir(const char *path, struct fuse_file_info *fi) {
 
+
+	struct inode temp;
 	// Step 1: Call get_node_by_path() to get inode from path
+	if ( get_node_by_path(path, ROOT_DIRECTORY, &temp) == 0 ) return 0;
+	else return -1;
 
 	// Step 2: If not find, return -1
 
@@ -430,8 +436,19 @@ static int rufs_opendir(const char *path, struct fuse_file_info *fi) {
 static int rufs_readdir(const char *path, void *buffer, fuse_fill_dir_t filler, off_t offset, struct fuse_file_info *fi) {
 
 	// Step 1: Call get_node_by_path() to get inode from path
+	struct inode inode;
+	get_node_by_path(path, ROOT_DIRECTORY, &inode);
+	if ( inode.type != DIRECTORY ) return -1;
 
 	// Step 2: Read directory entries from its data blocks, and copy them to filler
+	for ( int i = 0; i < inode.size; i++ ) {
+		bio_read(inode.direct_ptr[i], block_buf);
+		struct dirent *dirent_ptr = block_buf;
+		for ( int j = 0; j < DIRENT_PER_BLOCK; j++ ) {
+			if ( ! dirent_ptr->valid ) continue;
+			else filler(buffer, dirent_ptr->name, NULL, 0);
+		}
+	}
 
 	return 0;
 }
@@ -440,14 +457,47 @@ static int rufs_readdir(const char *path, void *buffer, fuse_fill_dir_t filler, 
 static int rufs_mkdir(const char *path, mode_t mode) {
 
 	// Step 1: Use dirname() and basename() to separate parent directory path and target directory name
+	char directory_path[] = dirname(path);
+	char directory_name[] = basename(path);
 
 	// Step 2: Call get_node_by_path() to get inode of parent directory
+	struct inode parent_inode;
+	get_node_by_path(directory_path, ROOT_DIRECTORY, &parent_inode);
 
 	// Step 3: Call get_avail_ino() to get an available inode number
+	ino_t inode = get_avail_ino();
 
 	// Step 4: Call dir_add() to add directory entry of target directory to parent directory
+	dir_add(parent_inode, inode, directory_name, strlen(directory_name));
 
 	// Step 5: Update inode for target directory
+	struct inode base_inode;
+	readi(inode, &base_inode);
+
+	base_inode.ino = inode;
+	
+	int init_block = get_avail_blkno();
+	bio_read(init_block, block_buf);
+	struct dirent *dirent_ptr = block_buf;
+
+	dirent_ptr->ino = inode;
+	dirent_ptr->valid = 1;
+	memcpy(dirent_ptr->name, cur_dir, 2);
+	dirent_ptr->len = 1;
+	dirent_ptr++;
+
+	dirent_ptr->ino = parent_inode.ino;
+	dirent_ptr->valid = 1;
+	memcpy(dirent_ptr->name, par_dir, 3);
+	dirent_ptr->len = 2;
+
+	bio_write(init_block, block_buf);
+
+	base_inode.direct_ptr[0] = init_block;
+	base_inode.size = 1;
+	base_inode.type = DIRECTORY;
+	base_inode.valid = 1;
+	base_inode.link++;
 
 	// Step 6: Call writei() to write inode to disk
 
@@ -491,7 +541,7 @@ static int rufs_create(const char *path, mode_t mode, struct fuse_file_info *fi)
 
 	// Step 6: Call writei() to write inode to disk
 
-	return 0;
+	return 0; 
 }
 
 static int rufs_open(const char *path, struct fuse_file_info *fi) {
