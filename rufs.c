@@ -395,21 +395,10 @@ static void *rufs_init(struct fuse_conn_info *conn) {
 
 	// Step 1b: If disk file is found, just initialize in-memory data structures
 	// and read superblock from disk
-<<<<<<< Updated upstream
 
-	
-	// Step 1b: If disk file is found, just initialize in-memory data structures
-	// and read superblock from disk
-	
-
-	//something else needs to go here, keep filling in for now/
-
-	bio_read(SUPERBLOCK, superblock_buf);
-=======
 	bio_read(SUPERBLOCK, superblock_buf);
 	bio_read(superblock->i_bitmap_blk, i_bitmap_buf);
 	bio_read(superblock->d_bitmap_blk, d_bitmap_buf);
->>>>>>> Stashed changes
 
 	return NULL;
 }
@@ -419,19 +408,10 @@ static void rufs_destroy(void *userdata) {
 	// Step 1: De-allocate in-memory data structures
 
 	// Step 2: Close diskfile
-	return NULL;
 
 }
 
 static int rufs_getattr(const char *path, struct stat *stbuf) {
-<<<<<<< Updated upstream
-
-	struct inode get_inode;
-	// Step 1: call get_node_by_path() to get inode from path
-	if(get_node_by_path(path, stbuf->st_ino, &get_inode) != -1) {
-
-	}
-=======
 	struct inode *temp;
 	// Step 1: call get_node_by_path() to get inode from path
 	if(get_node_by_path(path, ROOT_DIRECTORY, &temp) == 0) {
@@ -443,7 +423,6 @@ static int rufs_getattr(const char *path, struct stat *stbuf) {
 		time(&stbuf->st_mtime);
 		temp->vstat = stbuf;
 	} else return -1;
->>>>>>> Stashed changes
 	// Step 2: fill attribute of file into stbuf from inode
 	return 0;
 }
@@ -464,6 +443,9 @@ static int rufs_opendir(const char *path, struct fuse_file_info *fi) {
 static int rufs_readdir(const char *path, void *buffer, fuse_fill_dir_t filler, off_t offset, struct fuse_file_info *fi) {
 
 	// Step 1: Call get_node_by_path() to get inode from path
+	struct inode inode;
+	get_node_by_path(path, ROOT_DIRECTORY, &inode);
+	if ( inode.type != DIRECTORY ) return -1;
 
 	// Step 2: Read directory entries from its data blocks, and copy them to filler
 	for ( int i = 0; i < inode.size; i++ ) {
