@@ -381,6 +381,10 @@ static void *rufs_init(struct fuse_conn_info *conn) {
 
 	// Step 1b: If disk file is found, just initialize in-memory data structures
 	// and read superblock from disk
+<<<<<<< HEAD
+=======
+
+>>>>>>> 638afdf15dd6a43f5f0c00db52174749fb12f778
 	bio_read(SUPERBLOCK, superblock_buf);
 	bio_read(superblock->i_bitmap_blk, i_bitmap_buf);
 	bio_read(superblock->d_bitmap_blk, d_bitmap_buf);
@@ -393,7 +397,6 @@ static void rufs_destroy(void *userdata) {
 	// Step 1: De-allocate in-memory data structures
 
 	// Step 2: Close diskfile
-	return NULL;
 
 }
 
@@ -430,7 +433,12 @@ static int rufs_readdir(const char *path, void *buffer, fuse_fill_dir_t filler, 
 
 	// Step 1: Call get_node_by_path() to get inode from path
 	struct inode inode;
+<<<<<<< HEAD
 	if ( get_node_by_path(path, ROOT_DIRECTORY, &inode) == -1 ) return -1;
+=======
+	get_node_by_path(path, ROOT_DIRECTORY, &inode);
+	if ( inode.type != DIRECTORY ) return -1;
+>>>>>>> 638afdf15dd6a43f5f0c00db52174749fb12f778
 
 	// Step 2: Read directory entries from its data blocks, and copy them to filler
 	for ( int i = 0; i < inode.size; i++ ) {
