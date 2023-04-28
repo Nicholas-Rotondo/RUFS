@@ -46,8 +46,7 @@ char cur_dir[] = ".", par_dir[] = "..";
 int get_avail_ino() {
 
 	// Step 1: Read inode bitmap from disk
-	bio_read(superblock_ptr->i_bitmap_blk, i_bitmap_buf);
-	
+
 	// Step 2: Traverse inode bitmap to find an available slot
 	int inode = 0, found_flag = 0;
 	for ( int i = 0; i < (MAX_INUM / 8); i++ ) {
@@ -84,8 +83,7 @@ int get_avail_ino() {
 int get_avail_blkno() {
 
 	// Step 1: Read inode bitmap from disk
-	bio_read(superblock_ptr->d_bitmap_blk, d_bitmap_buf);
-	
+
 	// Step 2: Traverse inode bitmap to find an available slot
 	int block = 0, found_flag = 0;
 	for ( int i = 0; i < (MAX_INUM / 8); i++ ) {
@@ -113,7 +111,7 @@ int get_avail_blkno() {
 
 	bio_write(superblock_ptr->d_bitmap_blk, d_bitmap_buf);
 
-	return block;
+	return block + superblock_ptr->d_start_blk;
 }
 
 /* 
