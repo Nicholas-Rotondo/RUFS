@@ -395,7 +395,7 @@ static void rufs_destroy(void *userdata) {
 }
 
 static int rufs_getattr(const char *path, struct stat *stbuf) {
-	struct inode *temp;
+	struct inode temp;
 	// Step 1: call get_node_by_path() to get inode from path
 	if(get_node_by_path(path, ROOT_DIRECTORY, &temp) == 0) {
 		stbuf->st_ino;
@@ -535,17 +535,51 @@ static int rufs_releasedir(const char *path, struct fuse_file_info *fi) {
 static int rufs_create(const char *path, mode_t mode, struct fuse_file_info *fi) {
 
 	// Step 1: Use dirname() and basename() to separate parent directory path and target file name
+	char directory_path[] = dirname(path);
+	char file_name[] = basename(path);
 
 	// Step 2: Call get_node_by_path() to get inode of parent directory
+	struct inode par_inode; 
+	get_node_by_path(path, ROOT_DIRECTORY, &par_inode)
 
 	// Step 3: Call get_avail_ino() to get an available inode number
+	ino_t ino_num = get_avail_ino();
 
 	// Step 4: Call dir_add() to add directory entry of target file to parent directory
+	dir_add(par_inode, ino_num, file_name, strlen(file_name));
 
 	// Step 5: Update inode for target file
+	struct inode file_inode;
+	readi(ino_num, &file_inode);
 
+	file_inode.ino = ino_num;
+
+	int init_block = get_avail_blkno();
+	bio_read(init_block, init_block);
+
+	struct dirent *file_entry = block_buf;
+
+	file_entry->ino = ino_num;
+	file_entry->valid = 1;
+	memcpy(file_entry->name, cur_dir, 2);
+	file_entry->len = 1;
+	file_entry++;
+
+	file_entry->ino = par_inode.ino;
+	file_entry->valid = 1;
+	memcpy(file_entry->name, par_dir, 3);
+	file_entry->len = 2;
+
+	bio_write(init_block, block_buf);
+
+	file_inode.direct_ptr[0] = init_block;
+	file_inode.size = 1;
+	file_inode.type = FILE;
+	file_inode.valid = 1;
+	file_inode.link++;
 	// Step 6: Call writei() to write inode to disk
 
+	writei(ino_num, &file_inode);
 	return 0; 
 }
 
