@@ -589,7 +589,7 @@ static int rufs_create(const char *path, mode_t mode, struct fuse_file_info *fi)
 
 	// Step 2: Call get_node_by_path() to get inode of parent directory
 	struct inode par_inode; 
-	get_node_by_path(path, ROOT_DIRECTORY, &par_inode)
+	get_node_by_path(directory_path, ROOT_DIRECTORY, &par_inode);
 
 	// Step 3: Call get_avail_ino() to get an available inode number
 	ino_t ino_num = get_avail_ino();
@@ -599,34 +599,16 @@ static int rufs_create(const char *path, mode_t mode, struct fuse_file_info *fi)
 
 	// Step 5: Update inode for target file
 	struct inode file_inode;
-	readi(ino_num, &file_inode);
 
 	file_inode.ino = ino_num;
-
-	int init_block = get_avail_blkno();
-	bio_read(init_block, init_block);
-
-	struct dirent *file_entry = block_buf;
-
-	file_entry->ino = ino_num;
-	file_entry->valid = 1;
-	file_entry->len = 1;
-	file_entry++;
-
-	file_entry->ino = par_inode.ino;
-	file_entry->valid = 1;
-	file_entry->len = 2;
-
-	bio_write(init_block, block_buf);
-
-	file_inode.direct_ptr[0] = init_block;
-	file_inode.size = 1;
 	file_inode.type = FILE;
 	file_inode.valid = 1;
 	file_inode.link++;
+	file_inode.size = 0;
+	
 	// Step 6: Call writei() to write inode to disk
-
 	writei(ino_num, &file_inode);
+
 	return 0; 
 }
 
@@ -634,8 +616,8 @@ static int rufs_open(const char *path, struct fuse_file_info *fi) {
 
 	// Step 1: Call get_node_by_path() to get inode from path
 	struct inode open_inode;
-	if(get_node_by_path(path, ROOT_DIRECTORY, &open_inode) == 0) return 0;
-	else return -1;
+	if(get_node_by_path(path, ROOT_DIRECTORY, &open_inode) == -1) return -1;
+	else return open_inode.ino;
 	// Step 2: If not find, return -1
 
 	return 0;
@@ -644,17 +626,18 @@ static int rufs_open(const char *path, struct fuse_file_info *fi) {
 static int rufs_read(const char *path, char *buffer, size_t size, off_t offset, struct fuse_file_info *fi) {
 
 	// Step 1: You could call get_node_by_path() to get inode from path
-	sturct inode read_inode;
-	if (get_node_by_path(path, ROOT_DIRECTORY, read_inode) == -1) return -1;
-	if ( inode.type != FILE ) return -1;
+	struct inode read_inode;
+	if (get_node_by_path(path, ROOT_DIRECTORY, &read_inode) == -1) return -1;
+	if ( read_inode.type != FILE ) return -1;
+
 	// Step 2: Based on size and offset, read its data blocks from disk
-	int blocks_to_read = ( size + offset + BLOCK_SIZE - 1) / BLOCK_SIZE;
+	int blocks_to_read = (size + offset + BLOCK_SIZE - 1) / BLOCK_SIZE;
+	if ( blocks_to_read > read_inode.size ) return -1;
+
 	// Step 3: copy the correct amount of data from offset to buffer
 	int curr_block = offset / BLOCK_SIZE;
-
 	int byte_counter = size;
 
-	char *buffer_read;
 	// Note: this function should return the amount of bytes you copied to buffer
 	while(byte_counter > 0) {
 
@@ -668,20 +651,16 @@ static int rufs_read(const char *path, char *buffer, size_t size, off_t offset, 
 
 		void *read_ptr = block_buf;
 
-		if(curr_block == read_inode.size) {
-			bio_read(read_inode.direct_ptr[curr_block], block_buf);
-			memcpy(read_ptr, buffer, bytes_to_read);
-			bio_write(read_inode.direct_ptr[curr_block], block_buf);
-		} else {
-			bio_read(read_inode.direct_ptr[curr_block], block_buf);
-			memcpy(read_ptr, buffer, bytes_to_read);
-			bio_write(read_inode.direct_ptr[curr_block], block_buf);
-		}
+		bio_read(read_inode.direct_ptr[curr_block], block_buf);
+		memcpy(read_ptr, buffer, bytes_to_read);
+		bio_write(read_inode.direct_ptr[curr_block], block_buf);
 		
 		byte_counter -= bytes_to_read;
 		curr_block++;
+
 	}
-	return 0;
+
+	return size;
 }
 
 static int rufs_write(const char *path, const char *buffer, size_t size, off_t offset, struct fuse_file_info *fi) {
@@ -692,7 +671,7 @@ static int rufs_write(const char *path, const char *buffer, size_t size, off_t o
 	if ( inode.type != FILE ) return -1;
 
 	// Step 2: Based on size and offset, read its data blocks from disk
-	int blocks_for_write = ( size + offset + BLOCK_SIZE - 1) / BLOCK_SIZE;
+	int blocks_for_write = (size + offset + BLOCK_SIZE - 1) / BLOCK_SIZE;
 	int blocks_to_allocate = blocks_for_write - inode.size;
 
 	int curr_block = offset / BLOCK_SIZE;
@@ -701,7 +680,7 @@ static int rufs_write(const char *path, const char *buffer, size_t size, off_t o
 	
 	while ( byte_counter > 0 ) {
 
-		i ( curr_block >= 16 ) return -1;f
+		if ( curr_block >= 16 ) return -1;
 
 		int space_in_block = BLOCK_SIZE - (offset % BLOCK_SIZE);
 		int bytes_to_write;
