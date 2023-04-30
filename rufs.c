@@ -597,26 +597,42 @@ static int rufs_read(const char *path, char *buffer, size_t size, off_t offset, 
 	// Step 1: You could call get_node_by_path() to get inode from path
 	sturct inode read_inode;
 	if (get_node_by_path(path, ROOT_DIRECTORY, read_inode) == -1) return -1;
+	if ( inode.type != FILE ) return -1;
 	// Step 2: Based on size and offset, read its data blocks from disk
-	// reading might have to be done in two different blocks?
 	int blocks_to_read = ( size + offset + BLOCK_SIZE - 1) / BLOCK_SIZE;
 	// Step 3: copy the correct amount of data from offset to buffer
 	int curr_block = offset / BLOCK_SIZE;
 
 	int byte_counter = size;
 
-	char *buffer_container;
-
-	while(byte_counter > 0){
-
-
-		if(byte_counter == 0 || ) {
-			buffer_container = buffer;
-		}
-	}
-
+	char *buffer_read;
 	// Note: this function should return the amount of bytes you copied to buffer
-	return buffer_container;
+	while(byte_counter > 0) {
+
+		if ( curr_block >= 16 ) return -1;
+
+		int space_in_block = BLOCK_SIZE - (offset % BLOCK_SIZE);
+		int bytes_to_read;
+		
+		if (byte_counter > space_in_block ) bytes_to_read = space_in_block;
+		else bytes_to_read = byte_counter;
+
+		void *read_ptr = block_buf;
+
+		if(curr_block == read_inode.size) {
+			bio_read(read_inode.direct_ptr[curr_block], block_buf);
+			memcpy(read_ptr, buffer, bytes_to_read);
+			bio_write(read_inode.direct_ptr[curr_block], block_buf);
+		} else {
+			bio_read(read_inode.direct_ptr[curr_block], block_buf);
+			memcpy(read_ptr, buffer, bytes_to_read);
+			bio_write(read_inode.direct_ptr[curr_block], block_buf);
+		}
+		
+		byte_counter -= bytes_to_read;
+		curr_block++;
+	}
+	return 0;
 }
 
 static int rufs_write(const char *path, const char *buffer, size_t size, off_t offset, struct fuse_file_info *fi) {
@@ -636,7 +652,7 @@ static int rufs_write(const char *path, const char *buffer, size_t size, off_t o
 	
 	while ( byte_counter > 0 ) {
 
-		if ( curr_block >= 16 ) return -1;
+		i ( curr_block >= 16 ) return -1;f
 
 		int space_in_block = BLOCK_SIZE - (offset % BLOCK_SIZE);
 		int bytes_to_write;
