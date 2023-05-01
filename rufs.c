@@ -46,6 +46,8 @@ char cur_dir[] = ".", par_dir[] = "..";
  */
 int get_avail_ino() {
 
+	fprintf(stderr, "get_avail_ino() called\n");
+
 	// Step 1: Read inode bitmap from disk
 
 	// Step 2: Traverse inode bitmap to find an available slot
@@ -73,9 +75,13 @@ int get_avail_ino() {
 	if ( ! found_flag ) return -1;
 
 	// Step 3: Update inode bitmap and write to disk 
+
+
 	set_bitmap(i_bitmap_buf, inode);
 
 	bio_write(superblock_ptr->i_bitmap_blk, i_bitmap_buf);
+
+	fprintf(stderr, "get_avail_ino(): inode %d returned as available\n", inode);
 
 	return inode;
 }
@@ -84,6 +90,8 @@ int get_avail_ino() {
  * Get available data block number from bitmap
  */
 int get_avail_blkno() {
+
+	fprintf(stderr, "get_avail_blkno() called\n");
 
 	// Step 1: Read inode bitmap from disk
 
@@ -115,6 +123,8 @@ int get_avail_blkno() {
 
 	bio_write(superblock_ptr->d_bitmap_blk, d_bitmap_buf);
 
+	fprintf(stderr, "get_avail_blkno(): block %d returned as available (block %d in bitmap)\n", block +  superblock_ptr->d_start_blk, block);
+
 	return block + superblock_ptr->d_start_blk;
 }
 
@@ -123,11 +133,15 @@ int get_avail_blkno() {
  */
 int readi(uint16_t ino, struct inode *inode) {
 
+	fprintf(stderr, "readi() called to read inode %d\n", ino);
+
 	// Step 1: Get the inode's on-disk block number
 	int block_num = (ino / INODE_PER_BLOCK) + superblock_ptr->i_start_blk; 
 
 	// Step 2: Get offset of the inode in the inode on-disk block
 	int offset = ino % INODE_PER_BLOCK;
+
+	fprintf(stderr, "readi(): Will obtain inode %d from block %d with offset %d\n", ino, block_num, offset);
 
 	// Step 3: Read the block from disk and then copy into inode structure
 	bio_read(block_num, block_buf);
@@ -136,16 +150,22 @@ int readi(uint16_t ino, struct inode *inode) {
 	inode_ptr += offset;
 	*(inode) = *(inode_ptr);
 
+	fprintf(stderr, "readi(): Read inode %d which has validity %d, type %d, and size %d\n", inode->ino, inode->valid, inode->type, inode->size);
+
 	return 0;
 }
 
 int writei(uint16_t ino, struct inode *inode) {
+
+	fprintf(stderr, "writei() called to write to inode %d\n", ino);
 
 	// Step 1: Get the block number where this inode resides on disk
 	int block_num = (ino / INODE_PER_BLOCK) + superblock_ptr->i_start_blk; 
 	
 	// Step 2: Get the offset in the block where this inode resides on disk
 	int offset = ino % INODE_PER_BLOCK;
+
+	fprintf(stderr, "writei(): Will write to inode %d on block %d with offset %d\n", ino, block_num, offset);
 
 	// Step 3: Write inode to disk 
 	bio_read(block_num, block_buf);
@@ -156,6 +176,8 @@ int writei(uint16_t ino, struct inode *inode) {
 
 	bio_write(block_num, block_buf);
 
+	fprintf(stderr, "writei(): Wrote inode %d which has validity %d, type %d, and size %d\n", inode_ptr->ino, inode_ptr->valid, inode_ptr->type, inode_ptr->size);
+
 	return 0;
 }
 
@@ -164,6 +186,8 @@ int writei(uint16_t ino, struct inode *inode) {
  * directory operations
  */
 int dir_find(uint16_t ino, const char *fname, size_t name_len, struct dirent *dirent) {
+
+	fprintf(stderr, "dir_find() called on directory with inode %d to find file %s\n", ino, fname);
 
 	// Step 1: Call readi() to get the inode using ino (inode number of current directory)
 	struct inode dir_inode;
@@ -183,6 +207,7 @@ int dir_find(uint16_t ino, const char *fname, size_t name_len, struct dirent *di
 			
 			else if ( memcmp(fname, dirent_ptr->name, name_len) == 0 ) {
 				*(dirent) = *(dirent_ptr);
+				fprintf(stderr, "dir_find(): Found file %s in block %d at offset %d of directory with inode %d\n", fname, i, j, ino);
 				return 0;
 			}
 
@@ -193,10 +218,14 @@ int dir_find(uint16_t ino, const char *fname, size_t name_len, struct dirent *di
   // Step 3: Read directory's data block and check each directory entry.
   //If the name matches, then copy directory entry to dirent structure
 
+	fprintf(stderr, "dir_find(): Did not find file %s in directory with inode %d\n", fname, ino);
+
 	return -1;
 }
 
 int dir_add(struct inode dir_inode, uint16_t f_ino, const char *fname, size_t name_len) {
+
+	fprintf(stderr, "dir_add() called on directory with inode %d to add file %s with inode %d\n", dir_inode.ino, fname, f_ino);
 
 	// Step 1: Read dir_inode's data block and check each directory entry of dir_inode
 	char invalid_flag = 0;
@@ -234,6 +263,7 @@ int dir_add(struct inode dir_inode, uint16_t f_ino, const char *fname, size_t na
 					dirent_ptr[j].len = name_len;
 					memcpy(dirent_ptr[j].name, fname, name_len);
 					bio_write(dir_inode.direct_ptr[i], block_buf);
+					fprintf(stderr, "dir_add(): Added file with inode %d at entry %d in block %d of directory with inode %d\n", f_ino, j, i, dir_inode.ino);
 					return 0;
 				}
 			}
@@ -245,6 +275,8 @@ int dir_add(struct inode dir_inode, uint16_t f_ino, const char *fname, size_t na
 
 		int new_block = get_avail_blkno();
 		if ( new_block == -1 ) return -1;
+
+		fprintf(stderr, "dir_add(): Needed to allocate block %d to add file with inode %d in directory with inode %d\n", new_block, f_ino, dir_inode.ino);
 
 		bio_read(new_block, block_buf);
 		struct dirent *dirent_ptr = block_buf;
@@ -260,6 +292,8 @@ int dir_add(struct inode dir_inode, uint16_t f_ino, const char *fname, size_t na
 
 		dir_inode.direct_ptr[dir_inode.size++] = new_block;
 		writei(dir_inode.ino, &dir_inode);
+
+		fprintf(stderr, "dir_add(): Added file with inode %d at entry 0 in block %d of directory with inode %d\n", f_ino, dir_inode.size, dir_inode.ino);
 
 		return 0;		
 
