@@ -570,8 +570,14 @@ static int rufs_mkdir(const char *path, mode_t mode) {
 	fprintf(stderr, "rufs_mkdir() called\n");
 
 	// Step 1: Use dirname() and basename() to separate parent directory path and target directory name
-	char *directory_path = dirname(path);
-	char *directory_name = basename(path);
+	char path_cpy1[strlen(path)];
+	char path_cpy2[strlen(path)];
+	strcpy(path_cpy1, path);
+	strcpy(path_cpy2, path);
+
+
+	char *directory_path = dirname(path_cpy1);
+	char *directory_name = basename(path_cpy2);
 
 	// Step 2: Call get_node_by_path() to get inode of parent directory
 	struct inode parent_inode;
@@ -637,8 +643,14 @@ static int rufs_rmdir(const char *path) {
 	fprintf(stderr, "rufs_rmdir() called\n");
 
 	// Step 1: Use dirname() and basename() to separate parent directory path and target directory name
-	char *directory_path = dirname(path);
-	char *directory_name = basename(path);
+	char path_cpy1[strlen(path)];
+	char path_cpy2[strlen(path)];
+	strcpy(path_cpy1, path);
+	strcpy(path_cpy2, path);
+
+
+	char *directory_path = dirname(path_cpy1);
+	char *directory_name = basename(path_cpy2);
 
 	// Step 2: Call get_node_by_path() to get inode of target directory
 	struct inode target_inode;
@@ -674,8 +686,14 @@ static int rufs_create(const char *path, mode_t mode, struct fuse_file_info *fi)
 	fprintf(stderr, "rufs_create() called\n");
 
 	// Step 1: Use dirname() and basename() to separate parent directory path and target file name
-	char *directory_path = dirname(path);
-	char *file_name = basename(path);
+	char path_cpy1[strlen(path)];
+	char path_cpy2[strlen(path)];
+	strcpy(path_cpy1, path);
+	strcpy(path_cpy2, path);
+
+
+	char *directory_path = dirname(path_cpy1);
+	char *file_name = basename(path_cpy2);
 
 	fprintf(stderr, "rufs_create(): Directory path: %s | File Name: %s\n", directory_path, file_name);
 
@@ -776,7 +794,7 @@ static int rufs_read(const char *path, char *buffer, size_t size, off_t offset, 
 
 static int rufs_write(const char *path, const char *buffer, size_t size, off_t offset, struct fuse_file_info *fi) {
 
-	fprintf(stderr, "rufs_write() called\n");
+	fprintf(stderr, "rufs_write() called on path %s to write %d bytes starting at offset %d\n", path, size, offset);
 	
 	// Step 1: You could call get_node_by_path() to get inode from path
 	struct inode inode;
@@ -790,6 +808,8 @@ static int rufs_write(const char *path, const char *buffer, size_t size, off_t o
 	int curr_block = offset / BLOCK_SIZE;
 
 	int byte_counter = size;
+
+	char temp_buf[BLOCK_SIZE];
 	
 	while ( byte_counter > 0 ) {
 
@@ -801,22 +821,26 @@ static int rufs_write(const char *path, const char *buffer, size_t size, off_t o
 		if (byte_counter > space_in_block ) bytes_to_write = space_in_block;
 		else bytes_to_write = byte_counter;
 
-		void *write_ptr = block_buf;
-		write_ptr += (offset % BLOCK_SIZE);
+		fprintf(stderr, "rufs_write(): Iterating at logical block %d with size %d to write %d bytes\n", curr_block, inode.size, bytes_to_write);
 
 		if ( curr_block == inode.size ) {
 
 			int allocated_block = get_avail_blkno();
-			bio_read(allocated_block, block_buf);
+			bio_read(allocated_block, temp_buf);
+			void *write_ptr = temp_buf;
+			write_ptr += (offset % BLOCK_SIZE);
+			fprintf(stderr, "rufs_write(): Writing to address %p (Block buffer start address %p)\n", write_ptr, temp_buf);
 			memcpy(write_ptr, buffer, bytes_to_write);
-			bio_write(allocated_block, block_buf);
+			bio_write(allocated_block, temp_buf);
 			inode.direct_ptr[size++] = allocated_block;
 
 		} else {
 
-			bio_read(inode.direct_ptr[curr_block], block_buf);
+			bio_read(inode.direct_ptr[curr_block], temp_buf);
+			void *write_ptr = temp_buf;
+			write_ptr += (offset % BLOCK_SIZE);
 			memcpy(write_ptr, buffer, bytes_to_write);
-			bio_write(inode.direct_ptr[curr_block], block_buf);
+			bio_write(inode.direct_ptr[curr_block], temp_buf);
 
 		}
 
@@ -847,8 +871,14 @@ static int rufs_unlink(const char *path) {
 	fprintf(stderr, "rufs_unlink() called\n");
 
 	// Step 1: Use dirname() and basename() to separate parent directory path and target file name
-	char *directory_path = dirname(path);
-	char *file_name = basename(path);
+	char path_cpy1[strlen(path)];
+	char path_cpy2[strlen(path)];
+	strcpy(path_cpy1, path);
+	strcpy(path_cpy2, path);
+
+
+	char *directory_path = dirname(path_cpy1);
+	char *file_name = basename(path_cpy2);
 
 	// Step 2: Call get_node_by_path() to get inode of target file
 	struct inode target_inode;
