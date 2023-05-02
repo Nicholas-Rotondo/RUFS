@@ -86,7 +86,7 @@ int get_avail_blkno() {
 
 	int blkno = 0, found_flag = 0;
 
-	for ( int i = 0; i < (MAX_INUM / 8); i++ ) {
+	for ( int i = 0; i < (MAX_DNUM / 8); i++ ) {
 
 		if ( d_bitmap_buf[i] == 255 ) blkno += 8;
 
@@ -321,8 +321,6 @@ int get_node_by_path(const char *path, uint16_t ino, struct inode *inode) {
 
 int rufs_mkfs() {
 
-	fprintf(stderr, "rufs_mkfs() called\n");
-
 	dev_init(diskfile_path);
 
 	memset(superblock_buf, 0, BLOCK_SIZE);
@@ -398,8 +396,6 @@ int rufs_mkfs() {
 
 static void *rufs_init(struct fuse_conn_info *conn) {
 
-	fprintf(stderr, "rufs_init() called\n");
-
 	if ( dev_open(diskfile_path) == -1 ) rufs_mkfs();
 
 	bio_read(SUPERBLOCK_BLKNO, superblock_buf);
@@ -427,8 +423,6 @@ static int rufs_getattr(const char *path, struct stat *stbuf) {
 }
 
 static int rufs_opendir(const char *path, struct fuse_file_info *fi) {
-
-	fprintf(stderr, "rufs_opendir() called\n");
 
 	struct inode ino;
 	int retval = get_node_by_path(path, ROOT_DIRECTORY_INO, &ino);
@@ -467,8 +461,6 @@ static int rufs_readdir(const char *path, void *buffer, fuse_fill_dir_t filler, 
 
 
 static int rufs_mkdir(const char *path, mode_t mode) {
-
-	fprintf(stderr, "rufs_mkdir() called\n");
 
 	char path_cpy1[strlen(path)], path_cpy2[strlen(path)];
 	strcpy(path_cpy1, path);
@@ -594,8 +586,6 @@ static int rufs_create(const char *path, mode_t mode, struct fuse_file_info *fi)
 
 static int rufs_open(const char *path, struct fuse_file_info *fi) {
 
-	fprintf(stderr, "rufs_open() called\n");
-
 	struct inode open_inode;
 	int retval = get_node_by_path(path, ROOT_DIRECTORY_INO, &open_inode);
 	return retval;
@@ -603,8 +593,6 @@ static int rufs_open(const char *path, struct fuse_file_info *fi) {
 }
 
 static int rufs_read(const char *path, char *buffer, size_t size, off_t offset, struct fuse_file_info *fi) {
-
-	fprintf(stderr, "rufs_read() called\n");
 
 	struct inode read_inode;
 	int retval = get_node_by_path(path, ROOT_DIRECTORY_INO, &read_inode);
@@ -626,7 +614,7 @@ static int rufs_read(const char *path, char *buffer, size_t size, off_t offset, 
 		bio_read(read_inode.direct_ptr[curr_block], block_buf);
 
 		void *read_ptr = block_buf + (offset % BLOCK_SIZE);
-		memcpy(read_ptr, buffer, bytes_to_read_from_block);
+		memcpy(buffer, read_ptr, bytes_to_read_from_block);
 		
 		bytes_read += bytes_to_read_from_block;
 		buffer += bytes_to_read_from_block;		
@@ -643,8 +631,6 @@ static int rufs_read(const char *path, char *buffer, size_t size, off_t offset, 
 }
 
 static int rufs_write(const char *path, const char *buffer, size_t size, off_t offset, struct fuse_file_info *fi) {
-
-	fprintf(stderr, "rufs_write() called\n");
 
 	struct inode inode;
 	int retval = get_node_by_path(path, ROOT_DIRECTORY_INO, &inode);

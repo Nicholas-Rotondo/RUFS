@@ -7,6 +7,7 @@
 #include <string.h>
 #include <sys/types.h>
 #include <dirent.h>
+#include <time.h>
 
 /* You need to change this macro to your TFS mount point*/
 #define TESTDIR "/tmp/ttd31/mountdir"
@@ -25,6 +26,9 @@ int main(int argc, char **argv) {
 
 	int i, fd = 0, ret = 0;
 	struct stat st;
+
+	struct timespec start, end;
+	clock_gettime(CLOCK_REALTIME, &start);
 
 	/* TEST 1: file create test */
 	if ((fd = creat(TESTDIR "/file", FILEPERM)) < 0) {
@@ -132,7 +136,14 @@ int main(int argc, char **argv) {
 		perror("close largefile");
 		exit(1);
 	}
+	
+	clock_gettime(CLOCK_REALTIME, &end);
 
-	printf("Benchmark completed \n");
+	long seconds = end.tv_sec - start.tv_sec;
+	long nanoseconds = end.tv_nsec - start.tv_nsec;
+	double elapsed_time = seconds + (nanoseconds*1e-9);
+
+	printf("Benchmark completed in %lf milliseconds\n", elapsed_time);
+
 	return 0;
 }
