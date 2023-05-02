@@ -11,8 +11,9 @@
 #define IS_FILE 0
 #define IS_DIRECTORY 1
 
-#define INODE_PER_BLOCK (((sizeof(struct inode)) * (MAX_INUM)) / (BLOCK_SIZE))
+#define INODE_PER_BLOCK ((BLOCK_SIZE) / (sizeof(struct inode)))
 #define DIRENT_PER_BLOCK ((BLOCK_SIZE) / (sizeof(struct dirent)))
+#define BLOCKS_FOR_INODES (((sizeof(struct inode)) * 1024 + BLOCK_SIZE - 1) / (BLOCK_SIZE))
 
 #include <fuse.h>
 #include <stdlib.h>
@@ -139,8 +140,6 @@ int readi(uint16_t ino, struct inode *inode) {
 	// Step 2: Get offset of the inode in the inode on-disk block
 	int offset = ino % INODE_PER_BLOCK;
 
-	fprintf(stderr, "readi(): Will obtain inode %d from block %d with offset %d\n", ino, block_num, offset);
-
 	// Step 3: Read the block from disk and then copy into inode structure
 	bio_read(block_num, block_buf);
 
@@ -162,8 +161,6 @@ int writei(uint16_t ino, struct inode *inode) {
 	
 	// Step 2: Get the offset in the block where this inode resides on disk
 	int offset = ino % INODE_PER_BLOCK;
-
-	fprintf(stderr, "writei(): Will write to inode %d on block %d with offset %d\n", ino, block_num, offset);
 
 	// Step 3: Write inode to disk 
 	bio_read(block_num, block_buf);
@@ -202,11 +199,6 @@ int dir_find(uint16_t ino, const char *fname, size_t name_len, struct dirent *di
 		struct dirent *dirent_ptr = (struct dirent *) block_buf;
 
 		for ( int j = 0; j < DIRENT_PER_BLOCK; j++ ) {
-
-			char entry_name[dirent_ptr->len + 1];
-			memcpy(entry_name, dirent_ptr->name, dirent_ptr->len);
-			entry_name[dirent_ptr->len] = '\0';
-			fprintf(stderr, "dir_find(): Searching for %s in index %d in logical block %d: Name - %s | Valid - %d\n", fname, j, i, entry_name, dirent_ptr->valid);
 
 			if ( ! (dirent_ptr->valid && (dirent_ptr->len == name_len))) dirent_ptr++;
 			
@@ -266,7 +258,7 @@ int dir_add(struct inode dir_inode, uint16_t f_ino, const char *fname, size_t na
 			struct dirent *dirent_ptr = (struct dirent *) block_buf;
 
 			for ( int j = 0; j < DIRENT_PER_BLOCK; j++ ) {
-				if ( dirent_ptr[j].valid ) dirent_ptr++;
+				if ( dirent_ptr[j].valid ) continue;
 				else {
 					dirent_ptr[j].valid = 1;
 					dirent_ptr[j].ino = f_ino;
@@ -437,6 +429,8 @@ int rufs_mkfs() {
 	
 	// initialize data block bitmap
 	memset(d_bitmap_buf, 0, BLOCK_SIZE);
+
+	for ( int i = 0; i < blocks_for_inodes; i++ ) bio_write(i + superblock_ptr->i_start_blk, i_bitmap_buf);
 
 	struct inode root_inode;
 	root_inode.ino = get_avail_ino();
@@ -615,7 +609,7 @@ static int rufs_mkdir(const char *path, mode_t mode) {
 	bio_write(init_block, block_buf);
 
 	base_inode.direct_ptr[0] = init_block;
-	base_inode.size++;
+	base_inode.size = 1;
 	base_inode.type = IS_DIRECTORY;
 	base_inode.valid = 1;
 	base_inode.link = 2;
@@ -741,10 +735,9 @@ static int rufs_open(const char *path, struct fuse_file_info *fi) {
 	// Step 1: Call get_node_by_path() to get inode from path
 	struct inode open_inode;
 	if(get_node_by_path(path, ROOT_DIRECTORY, &open_inode) == -1) return -1;
-	else return open_inode.ino;
+	else return 0;
 	// Step 2: If not find, return -1
 
-	return 0;
 }
 
 static int rufs_read(const char *path, char *buffer, size_t size, off_t offset, struct fuse_file_info *fi) {
@@ -808,8 +801,6 @@ static int rufs_write(const char *path, const char *buffer, size_t size, off_t o
 	int curr_block = offset / BLOCK_SIZE;
 
 	int byte_counter = size;
-
-	char temp_buf[BLOCK_SIZE];
 	
 	while ( byte_counter > 0 ) {
 
@@ -821,40 +812,40 @@ static int rufs_write(const char *path, const char *buffer, size_t size, off_t o
 		if (byte_counter > space_in_block ) bytes_to_write = space_in_block;
 		else bytes_to_write = byte_counter;
 
-		fprintf(stderr, "rufs_write(): Iterating at logical block %d with size %d to write %d bytes\n", curr_block, inode.size, bytes_to_write);
+		void *write_ptr = block_buf;
+		write_ptr += (offset % BLOCK_SIZE);
 
 		if ( curr_block == inode.size ) {
 
 			int allocated_block = get_avail_blkno();
-			bio_read(allocated_block, temp_buf);
-			void *write_ptr = temp_buf;
-			write_ptr += (offset % BLOCK_SIZE);
-			fprintf(stderr, "rufs_write(): Writing to address %p (Block buffer start address %p)\n", write_ptr, temp_buf);
+			bio_read(allocated_block, block_buf);
 			memcpy(write_ptr, buffer, bytes_to_write);
-			bio_write(allocated_block, temp_buf);
-			inode.direct_ptr[size++] = allocated_block;
+			bio_write(allocated_block, block_buf);
+			inode.direct_ptr[inode.size++] = allocated_block;
 
 		} else {
 
-			bio_read(inode.direct_ptr[curr_block], temp_buf);
-			void *write_ptr = temp_buf;
-			write_ptr += (offset % BLOCK_SIZE);
+			bio_read(inode.direct_ptr[curr_block], block_buf);
 			memcpy(write_ptr, buffer, bytes_to_write);
-			bio_write(inode.direct_ptr[curr_block], temp_buf);
+			bio_write(inode.direct_ptr[curr_block], block_buf);
 
 		}
 
 		byte_counter -= bytes_to_write;
 		curr_block++;
 		offset = 0;
-		
+
 	}
+
+	fprintf(stderr, "Iteration performed successfully\n");
 
 	inode.vstat.st_atime = time(NULL);
 	inode.vstat.st_mtime = time(NULL);
 	inode.vstat.st_size += size;
 	inode.vstat.st_blksize += blocks_to_allocate;
 	inode.vstat.st_blocks += blocks_to_allocate;
+
+	fprintf(stderr, "Inode mod performed successfully\n");
 
 	writei(inode.ino, &inode);
 
